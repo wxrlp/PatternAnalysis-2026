@@ -1,13 +1,11 @@
-from datasets import load_dataset
+
 from collections import Counter
 import ast
 
-from dataset import get_image_identifiers # Import from our own dataset.py file. 
+from dataset import get_image_identifiers, load_audited_data # Import from our own dataset.py file. 
 
 
-dataset = load_dataset(
-    "BioLaySumm/BioLaySumm2025-LaymanRRG-opensource-track"
-)
+dataset, clean_train = load_audited_data()
 
 print(dataset)
 
@@ -172,13 +170,7 @@ for first, second in [
     overlap = individual_image_sets[first] & individual_image_sets[second]
     print(f"{first} / {second} | shared individual identifiers: {len(overlap)}")
 
-def keep_training_example(example):
-    identifiers = get_image_identifiers(example)
-    overlap = identifiers & individual_image_sets["validation"]
-    return not overlap
 
-
-clean_train = dataset["train"].filter(keep_training_example)
 
 print("Original training rows:", len(dataset["train"]))
 print("Filtered training rows:", len(clean_train))

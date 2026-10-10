@@ -27,3 +27,29 @@ def get_image_identifiers(example):
         paths = [raw_paths] # ALl other sources get their identifiers put into a singleton list
 
     return {(source, path.strip()) for path in paths}
+
+
+def load_audited_data():
+    """
+    Load the dataset and excludes training rows that share validation identifiers.
+    Returns both the original splits and the filtered training data.
+    Leaves validation and test set unchanged and doesn't create a development split yet.
+    """
+    dataset = load_dataset(DATASET_ID)
+    # Loads the original splits, reusing cached downloads whenever possible
+
+    validation_identifiers = set()
+
+    for example in dataset["validation"]:
+        validation_identifiers.update(get_image_identifiers(example)) 
+        # Adds identifiers from each validation row and adds them to the set
+
+    def keep_example(example):
+        """Helper function that extracts the training row's identifiers and
+        returns True when the two sets share no elements, meaning the row should be kept."""
+        identifiers = get_image_identifiers(example)
+        return identifiers.isdisjoint(validation_identifiers)
+
+    clean_train = dataset["train"].filter(keep_example) # Applies that decision to every training row
+
+    return dataset, clean_train # Returns two objects in a tuple, the original dataset and the filtered split
