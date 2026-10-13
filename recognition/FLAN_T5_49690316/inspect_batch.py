@@ -1,7 +1,8 @@
 from transformers import AutoTokenizer, DataCollatorForSeq2Seq
 
-from config import MODEL_ID, INSTRUCTION
-from dataset import load_audited_data
+from config import MODEL_ID
+from dataset import load_audited_data, tokenize_example
+from torch.utils.data import DataLoader
 
 import torch
 from modules import RadiologySummarizer
@@ -17,18 +18,11 @@ dataset, clean_train = load_audited_data() # Loads the data
 features = [] # Creates a list to hold the two prepared examples
 
 for example in clean_train.select(range(2)): # Selects rows at positions 0 and 1, processes them
-    encoded = tokenizer(INSTRUCTION + example["radiology_report"])
-    # Tokenizes the instructed input without padding
+    encoded = tokenize_example(example, tokenizer)
+    # Passes current row and tokeniser to the shared function, return sinput IDs, attention mask, and target labels
 
-
-    target = tokenizer(text_target=example["layman_report"])
-    # Tokenizes the reference summary separately
-
-    encoded["labels"] = target["input_ids"]
-    # Adds the expected output IDs under the key "labels". 
-    
     features.append(encoded)
-    # Adds prepared example to the list
+    # Adds that prepared example to the list that the collator will batch
 
 collator = DataCollatorForSeq2Seq(
     tokenizer=tokenizer,
@@ -124,3 +118,30 @@ print("Tracked parameter change:", change)
 assert change > 0, "Tracked parameter did not change"
 
 optimizer.zero_grad(set_to_none=True) # Reset old gradients again
+
+
+
+
+"""
+Now use a DataLoader to supply batches automatically
+"""
+
+
+small_features = [
+    tokenize_example(example, tokenizer)
+    for example in clean_train.select(range(8))
+] # Prepares first 8 training samples using the shared function
+
+loader = DataLoader(
+    small_features,
+    batch_size=2,
+    shuffle=False,
+    collate_fn=collator,
+) # Configures how to serve those samples. Two examples per batch, no shuffling, and passes each group to our collator
+
+for batch_number, training_batch in enumerate(loader, start=1):
+    print(
+        f"Batch {batch_number}: "
+        f"inputs {tuple(training_batch['input_ids'].shape)}, "
+        f"labels {tuple(training_batch['labels'].shape)}"
+    )

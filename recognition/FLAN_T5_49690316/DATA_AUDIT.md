@@ -75,3 +75,34 @@ FLAN-T5-small successfully processed a two-example batch on Apple MPS.
 These checks demonstrate working forward, backward, and optimiser
 operations. They do not measure held-out performance or establish
 that summary quality improved. Updated weights were not saved.
+
+
+## Two-example overfit diagnostic
+
+Full fine-tuning was tested on two training examples using AdamW,
+a learning rate of 0.0001, and a fixed seed of 42.
+
+After 30 updates:
+- The first example reproduced its reference and generated EOS.
+- The second produced repetitive text and reached the 128-token cap
+  without generating EOS.
+
+After 100 updates:
+- Both examples reproduced their reference summaries.
+- Output lengths were 18 and 83 tokens, including EOS.
+- Both generated EOS within the output budget.
+
+This verifies that the pipeline can memorise and independently generate
+the two training targets. It does not measure generalisation or clinical
+factual fidelity.
+
+
+
+## Checkpoint round-trip verification
+
+The two-example diagnostic model and matching tokeniser were saved
+under checkpoints/tiny_overfit, which is excluded from Git.
+
+A separate predict.py process loaded the checkpoint and reproduced
+both memorised reference summaries. This verifies local checkpoint
+saving and loading; it is not held-out evaluation.

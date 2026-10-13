@@ -1,6 +1,7 @@
 import ast
 
 from datasets import load_dataset
+from config import INSTRUCTION
 
 
 
@@ -53,3 +54,30 @@ def load_audited_data():
     clean_train = dataset["train"].filter(keep_example) # Applies that decision to every training row
 
     return dataset, clean_train # Returns two objects in a tuple, the original dataset and the filtered split
+
+
+
+
+"""
+Create a reusable function that converts a report-summary pair into model inputs and labels. 
+"""
+
+def tokenize_example(example, tokenizer):
+    """Tokenise a complete report–summary pair without padding or truncation."""
+    model_input = INSTRUCTION + example["radiology_report"]
+
+    encoded = tokenizer(
+        model_input,
+        truncation=False,
+        padding=False,
+    ) # Produces input IDs and an attention mask, no padding or truncation
+
+    target = tokenizer(
+        text_target=example["layman_report"],
+        truncation=False,
+        padding=False,
+    ) # Tokenises the layman summary separately, no padding or truncation
+
+    encoded["labels"] = target["input_ids"]
+
+    return encoded # Returns the prepared example
