@@ -1,5 +1,6 @@
 import torch
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+from transformers import AutoTokenizer
+from modules import RadiologySummarizer
 # Import loaders for encoder-decoder text-generation model and its tokenizer
 
 from config import INSTRUCTION
@@ -14,7 +15,7 @@ device = torch.device(
 )
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_ID)
+model = RadiologySummarizer(MODEL_ID)
 
 model = model.to(device)
 model.eval() # Select evaluation mode

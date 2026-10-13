@@ -4,7 +4,7 @@ from config import MODEL_ID, INSTRUCTION
 from dataset import load_audited_data
 
 import torch
-from transformers import AutoModelForSeq2SeqLM
+from modules import RadiologySummarizer
 
 
 """
@@ -56,7 +56,7 @@ device = torch.device(
     "mps" if torch.backends.mps.is_available() else "cpu"
 ) # Select device
 
-model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_ID).to(device)
+model = RadiologySummarizer(MODEL_ID).to(device) # Creates wrapper, loads flan-t5 in it, and moves to selected device
 model.eval() # Loads model onto that device and activates eval mode
 
 device_batch = {
@@ -83,7 +83,7 @@ model.zero_grad(set_to_none=True) # Clear any existing gradients
 outputs = model(**device_batch) # Run another forward pass with gradient tracking enabled
 outputs.loss.backward() # Calculate gradients
 
-gradient = model.shared.weight.grad # Gets gradients for T5/s shared token-embedding matrix
+gradient = model.model.shared.weight.grad # Gets gradients for T5/s shared token-embedding matrix
 
 print("\nBackward-pass loss:", outputs.loss.item())
 print("Embedding gradient norm:", gradient.norm().item()) # Prints one number describing overall magnitude of that gradient tensor
@@ -105,7 +105,7 @@ Complete one training step: calculate predictions and loss, calculate graidents,
 optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4) 
 # Creates AdamW optimiser with learning rate of 1e-4
 
-tracked_parameter = model.encoder.final_layer_norm.weight # Selects small tensor of learned normalisation weights to inspect
+tracked_parameter = model.model.encoder.final_layer_norm.weight # Selects small tensor of learned normalisation weights to inspect
 before_update = tracked_parameter.detach().clone() # Saves an independent copy of its current values
 
 optimizer.zero_grad(set_to_none=True) # Clear old gradients
