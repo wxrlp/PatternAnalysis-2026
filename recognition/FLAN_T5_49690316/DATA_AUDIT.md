@@ -38,3 +38,40 @@ establish that records belong to the same patient.
 
 Image/session identifier separation has been verified.
 Patient-level separation has not been verified.
+
+
+
+## Untuned FLAN-T5-small smoke test
+
+- Device: Apple MPS on an M4 Mac with 16 GB unified memory.
+- Model: google/flan-t5-small.
+- Total parameters: 76,961,152.
+- Generation: do_sample=False, max_new_tokens=128.
+- Example: first row of filtered training data.
+
+Input report:
+No infiltrates or consolidations are observed in the study.
+
+Generated output:
+Report: No infiltrates or consolidations are observed in the study.
+
+The pipeline successfully generated text, but this example was copied
+rather than rewritten in plain language. This is a single-example
+functional check, not a held-out performance evaluation.
+
+
+
+## Training computation smoke test
+
+FLAN-T5-small successfully processed a two-example batch on Apple MPS.
+
+- Target padding used -100 so padded positions were excluded from loss.
+- Evaluation-mode forward loss: 3.2585.
+- Training-mode backward loss: 3.4796.
+- Shared embedding gradient norm: 0.01508.
+- One AdamW update completed with learning rate 0.0001.
+- Encoder final-layer normalisation parameter change norm: 0.002263.
+
+These checks demonstrate working forward, backward, and optimiser
+operations. They do not measure held-out performance or establish
+that summary quality improved. Updated weights were not saved.
