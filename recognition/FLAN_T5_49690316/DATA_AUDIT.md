@@ -135,3 +135,36 @@ metrics will be reported with sample counts.
 
 This procedure verifies image/session identifier separation.
 Patient-level separation remains unverified.
+
+
+
+## Full fine-tuning pilot
+
+FLAN-T5-small was trained on 128 training examples for two epochs.
+Checkpoint selection used loss on 32 development examples.
+
+- Initial development loss: 3.0052.
+- Epoch 1 development loss: 2.5016.
+- Epoch 2 development loss: 2.3554.
+- Epoch 2 was selected.
+
+Both the untuned baseline and selected pilot checkpoint were evaluated
+on the same 32 development examples using deterministic generation
+with a 256-new-token cap.
+
+| Metric | Baseline | Pilot |
+|---|---:|---:|
+| ROUGE-1 | 0.2868 | 0.4537 |
+| ROUGE-2 | 0.0750 | 0.2260 |
+| ROUGE-L | 0.2525 | 0.4010 |
+| ROUGE-Lsum | 0.2565 | 0.4221 |
+
+Scores are mean per-example F1 values, using stemming and sentence
+segmentation for ROUGE-Lsum.
+
+All metrics improved, but inspected outputs still retained jargon
+and sometimes used awkward wording. References also contained
+questionable simplifications.
+
+These are development results, not final held-out evaluation.
+The generation cap may truncate outputs.

@@ -1,143 +1,139 @@
+from pathlib import Path
+
 import torch
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, DataCollatorForSeq2Seq
 
 from config import MODEL_ID
-from dataset import load_audited_data, tokenize_example
+from dataset import (
+    load_audited_data,
+    split_train_development,
+    tokenize_example,
+)
 from modules import RadiologySummarizer
 
-from pathlib import Path
 
-
-def main():
-    torch.manual_seed(42) # Sets a random seed to reproduce the environment later
-
-    device = torch.device(
-        "mps" if torch.backends.mps.is_available() else "cpu"
-    ) # Sets device
-
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID) # Loads tokenizer
-    model = RadiologySummarizer(MODEL_ID).to(device) # Loads model to summarise reports
-
-    _, clean_train = load_audited_data() # Keeps the filtered training data only
-
+def make_loader(split, tokenizer, batch_size, shuffle):
     features = [
         tokenize_example(example, tokenizer)
-        for example in clean_train.select(range(2))
-    ] 
+        for example in split
+    ] # Prepares tokenized examples 
 
     collator = DataCollatorForSeq2Seq(
         tokenizer=tokenizer,
         padding=True,
         label_pad_token_id=-100,
         return_tensors="pt",
-    )
+    ) # Reuses the tested collator for dynamic padding and -100 target padding
 
-    loader = DataLoader(
+    return DataLoader(
         features,
-        batch_size=2,
-        shuffle=False,
+        batch_size=batch_size,
+        shuffle=shuffle,
         collate_fn=collator,
-    ) 
-
-    """Above 3 blocks (features, collator, DataLoader) prepare two examples using the established preprocessing"""
-
-    batch = next(iter(loader)) # Selecrs first batch
-    batch = {
-        name: tensor.to(device)
-        for name, tensor in batch.items()
-    } # Moves tensors to MPS
-
-    model.eval() # Eval mode
-    with torch.no_grad(): # No gradient tracking for now
-        initial_loss = model(**batch).loss.item() # Calculate initial loss
-
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4) # Initialises AdamW optimiser
-
-    model.train() # Activate train mode
-
-    for step in range(1, 101): # Perform 101 updates
-        optimizer.zero_grad(set_to_none=True) # Clear old gradients
-
-        outputs = model(**batch)
-        assert torch.isfinite(outputs.loss).item(), "Nonfinite training loss"
-
-        outputs.loss.backward() # Calculates loss
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) 
-        # Limits combined gradient norm before the update, reducing effects of unnaturally large gradients
-
-        optimizer.step() # Changes weights
-
-        if step == 1 or step % 10 == 0: # Print progress at step 1 and every 5th step
-            print(f"Step {step}: training loss = {outputs.loss.item():.4f}")
-
-    model.eval() # Eval mode again
-    with torch.no_grad(): # Clear old weights
-        final_loss = model(**batch).loss.item() #  Calculate loss again
-
-    print(f"\nInitial evaluation-mode loss: {initial_loss:.4f}")
-    print(f"Final evaluation-mode loss: {final_loss:.4f}")
+    ) # Returns a dataloader with the features and collator
 
 
-    """Now compare the model's generated summaries with the references it just trained on."""
+def run_epoch(model, loader, device, optimizer=None): # Processes every batch once
+    # Passing an optimizer enables training, omitting it performs loss evaluation
 
-    for example_number, feature in enumerate(features, start=1): # Visits two tokenized examples and numbers them
-        generation_inputs = {
-            name: torch.tensor([feature[name]], device=device)
-            for name in ["input_ids", "attention_mask"]
-        } # Creates input tensors for one example. Only include input IDs and attention mask, not reference labels
+    is_training = optimizer is not None
+    model.train(is_training) # Selects training or eval behaviour
 
-        with torch.inference_mode(): # Generates without tracking gradients
-            generated_ids = model.generate(
-                **generation_inputs,
-                max_new_tokens=128,
-                do_sample=False,
+    total_loss = 0.0
+    total_tokens = 0
+
+    for batch in loader:
+        batch = {
+            name: tensor.to(device)
+            for name, tensor in batch.items()
+        } # Move all tesnors to device
+
+        if is_training:
+            optimizer.zero_grad(set_to_none=True)
+            # Clear initial gradients if training
+
+        with torch.set_grad_enabled(is_training):
+            outputs = model(**batch) # Forward pass
+            loss = outputs.loss 
+
+            if not torch.isfinite(loss).item():
+                raise RuntimeError("Nonfinite loss")
+            # Check that loss is finite
+
+            if is_training:
+                loss.backward() # backpropagate
+                torch.nn.utils.clip_grad_norm_( # Clipping, weight updates
+                    model.parameters(),
+                    max_norm=1.0,
+                )
+                optimizer.step() # Optimize
+
+        token_count = (batch["labels"] != -100).sum().item() # Counts actual target tokens excluding padding
+        total_loss += loss.item() * token_count 
+        total_tokens += token_count # Accumulates token weighted loss
+
+    return total_loss / total_tokens # Returns average loss per non-padding target token
+
+
+def main():
+    torch.manual_seed(42) # Set seed for reproduction
+
+    device = torch.device(
+        "mps" if torch.backends.mps.is_available() else "cpu"
+    ) # Select device
+
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+    model = RadiologySummarizer(MODEL_ID).to(device) # Define model and tokenizer
+
+    _, clean_train = load_audited_data() # Filter data 
+    training, development = split_train_development(clean_train) # Keep the 5 percent for development
+
+    pilot_training = training.shuffle(seed=42).select(range(128))
+    pilot_development = development.shuffle(seed=42).select(range(32))
+
+    training_loader = make_loader(
+        pilot_training, tokenizer, batch_size=2, shuffle=True
+    ) # Create data loader for training data
+    development_loader = make_loader(
+        pilot_development, tokenizer, batch_size=2, shuffle=False
+    ) # Create data loader for development
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4) # Optimizer
+
+    checkpoint_dir = (
+        Path(__file__).resolve().parent / "checkpoints" / "pilot_full"
+    ) # Save checkpoint
+
+    best_development_loss = float("inf")
+
+    initial_loss = run_epoch(model, development_loader, device)
+    print(f"Initial development loss: {initial_loss:.4f}", flush=True)
+
+    for epoch in range(1, 3):
+        training_loss = run_epoch(
+            model, training_loader, device, optimizer
+        )
+        development_loss = run_epoch(
+            model, development_loader, device
+        )
+
+        print(
+            f"Epoch {epoch}: training loss = {training_loss:.4f}, "
+            f"development loss = {development_loss:.4f}",
+            flush=True,
+        )
+
+        if development_loss < best_development_loss:
+            best_development_loss = development_loss
+            model.model.save_pretrained(
+                checkpoint_dir,
+                safe_serialization=True,
             )
+            tokenizer.save_pretrained(checkpoint_dir)
+            print("Saved best pilot checkpoint", flush=True)
 
-        generated_text = tokenizer.decode( # Converts output IDs into readable text
-            generated_ids[0],
-            skip_special_tokens=True,
-        )
-
-        reference_text = tokenizer.decode( # Decodes unpadded reference IDs
-            feature["labels"],
-            skip_special_tokens=True,
-        )
-
-        print(f"\nExample {example_number}")
-        print("Reference:", reference_text)
-        print("Generated:", generated_text)
-
-        """Determine whether each summary generated an end-of-sequence token or exhausted
-        the output budget. """
-
-        sequence = generated_ids[0] # Select generated sequence
-        new_token_count = sequence.numel() - 1 # Count generated tokens, minus start-token
-        ended_with_eos = sequence[-1].item() == tokenizer.eos_token_id
-
-        print("Generated tokens:", new_token_count)
-        print("Ended with EOS:", ended_with_eos)
-
-
-        """Preserve trained weights so another script can load them later."""
-
-        checkpoint_dir = (
-            Path(__file__).resolve().parent / "checkpoints" / "tiny_overfit"
-        ) # Builds a path relative to train.py's location. .resolve() makes the path absolute
-          # Non-absolute path would look like src/data/config.json
-          # Absolute path would look like /home/user/project/src/data/config.json
-          # .parent() selects the containing folder of the file. 
-
-
-        model.model.save_pretrained(
-            checkpoint_dir,
-            safe_serialization=True, # Uses safetensors format for the weights
-        ) # Saves current flan-t5 weights and config in checkpoint format. 
-
-        tokenizer.save_pretrained(checkpoint_dir)
-        # Save tokenizer files alongside the weights so that the prediction can use the matching tokenizer
-
-        print("\nSaved diagnostic checkpoint to:", checkpoint_dir)
+        # Finds best output and saves it
 
 
 if __name__ == "__main__":
