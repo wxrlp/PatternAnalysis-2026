@@ -106,3 +106,32 @@ under checkpoints/tiny_overfit, which is excluded from Git.
 A separate predict.py process loaded the checkpoint and reproduced
 both memorised reference summaries. This verifies local checkpoint
 saving and loading; it is not held-out evaluation.
+
+
+
+
+## Training and development split
+
+Filtered training records were grouped by connected, source-qualified
+image/session identifiers. OpenI lists were parsed into individual paths.
+
+Groups were shuffled using seed 42, with 5% of groups reserved for
+development.
+
+- Training: 142,801 rows.
+- Development: 7,515 rows.
+- Training/development individual identifier overlap: 0.
+
+The supplied validation split is reserved for final scored evaluation.
+
+| Source | Training | Development | Final evaluation |
+|---|---:|---:|---:|
+| BIMCV-COVID19 | 29,686 (20.79%) | 1,540 (20.49%) | 2,042 (20.42%) |
+| OpenI | 2,123 (1.49%) | 120 (1.60%) | 134 (1.34%) |
+| PadChest | 110,992 (77.72%) | 5,855 (77.91%) | 7,824 (78.24%) |
+
+Source proportions are similar across splits. Overall and per-source
+metrics will be reported with sample counts.
+
+This procedure verifies image/session identifier separation.
+Patient-level separation remains unverified.

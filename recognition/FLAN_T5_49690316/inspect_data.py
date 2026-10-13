@@ -2,8 +2,9 @@
 from collections import Counter
 import ast
 
-from dataset import get_image_identifiers, load_audited_data # Import from our own dataset.py file. 
 
+from dataset import get_image_identifiers, load_audited_data, build_record_groups # Import from our own dataset.py file. 
+from dataset import split_train_development
 
 dataset, clean_train = load_audited_data()
 
@@ -252,3 +253,73 @@ remaining_overlap = (
 print("Remaining training/validation identifier overlap:", len(remaining_overlap))
 
 assert not remaining_overlap, "Training and validation still share identifiers"
+
+
+"""
+Splits the total data into 95 percent training data and 5 percent maintained development data
+"""
+
+
+record_groups = build_record_groups(clean_train)
+
+print("Connected record groups:", len(record_groups))
+print("Largest group size:", max(len(group) for group in record_groups))
+print("Rows accounted for:", sum(len(group) for group in record_groups))
+
+
+training, development = split_train_development(clean_train)
+
+print("Training rows:", len(training))
+print("Development rows:", len(development))
+
+assert len(training) + len(development) == len(clean_train)
+
+
+"""
+Check the split result. Collects individual identifiers from each resulting split
+and compares them. If any overlap exists, then stop. 
+"""
+
+
+training_identifiers = set()
+development_identifiers = set()
+# Creates separate collectiions for the two splits
+
+
+for example in training:
+    training_identifiers.update(get_image_identifiers(example))
+# Collects all individual identifiers in the training split
+
+for example in development:
+    development_identifiers.update(get_image_identifiers(example))
+# Collects all individual identifiers in development split
+
+split_overlap = training_identifiers & development_identifiers
+# Finds any identifiers present in both
+
+print("Training/development identifier overlap:", len(split_overlap))
+
+assert not split_overlap, "Training and development share identifiers"
+
+
+
+"""
+Check the composition of the randomly selected development groups. 
+"""
+
+for split_name, split in [
+    ("training", training),
+    ("development", development),
+    ("final evaluation", dataset["validation"]),
+]:
+    source_counts = Counter(split["source"]) 
+    # Count how many rows belong to each source
+
+    print(f"\n{split_name} source distribution:")
+
+    for source, count in sorted(source_counts.items()):
+        percentage = 100 * count / len(split)
+        print(f"{source}: {count} rows ({percentage:.2f}%)") 
+        # Shows distribution of each of the three sources. 
+        # PadChest appears to dominate with 78.24%
+        # OpenI is the lowest with 1.34%
