@@ -168,3 +168,64 @@ questionable simplifications.
 
 These are development results, not final held-out evaluation.
 The generation cap may truncate outputs.
+
+
+
+## LoRA pilot
+
+LoRA targeted T5 query and value projections using rank 8,
+alpha 16, dropout 0.05, and no trainable biases.
+
+- Total parameters: 77,305,216.
+- Trainable parameters: 344,064 (0.45%).
+
+Pilots used 128 training examples, 32 development examples,
+batch size 2, and two epochs.
+
+At learning rate 0.0001, final development loss was 2.8041.
+At learning rate 0.001, final development loss was 2.4511.
+
+| Metric | Baseline | Full pilot | LoRA, learning rate 0.001 |
+|---|---:|---:|---:|
+| ROUGE-1 | 0.2868 | 0.4537 | 0.4709 |
+| ROUGE-2 | 0.0750 | 0.2260 | 0.2401 |
+| ROUGE-L | 0.2525 | 0.4010 | 0.4207 |
+| ROUGE-Lsum | 0.2565 | 0.4221 | 0.4377 |
+
+These comparisons used a 256-new-token generation cap.
+LoRA received additional learning-rate tuning, so this is not
+evidence that it is intrinsically better than full fine-tuning.
+
+Inspected LoRA outputs still retained jargon and could omit or
+blur findings.
+
+## Recovery verification
+
+A local LoRA run was interrupted and resumed from epoch 1,
+batch offset 50. It completed the remaining batches and saved
+an epoch-boundary recovery checkpoint.
+
+Recovery includes model weights, optimiser state, random state,
+batch position, and accumulated loss totals. Functional recovery
+was verified; numerical equivalence to uninterrupted training
+has not been established.
+
+## Rangpur verification
+
+- GPU: NVIDIA A100-PCIE-40GB.
+- PyTorch: 2.13.0+cu130.
+- CUDA tensor operation succeeded.
+- A two-epoch LoRA pilot completed successfully in 43 seconds.
+- Development loss decreased from 3.0052 to 2.4900.
+- The dataset preparation reproduced the local split sizes.
+
+The working Slurm configuration uses account comp3710 and
+partition comp3710. Explicit system-memory requests were omitted
+because the partition advertised 1 MB per node and rejected
+the normal request.
+
+A larger development run was submitted as job 659655:
+10,000 training examples, 1,000 development examples, three
+epochs, learning rate 0.001, and batch size 2.
+
+Its results are pending.
