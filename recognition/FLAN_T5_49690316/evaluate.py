@@ -94,7 +94,7 @@ def main():
     reports = examples["radiology_report"]
 
     checkpoint_dir = (
-        Path(__file__).resolve().parent / "checkpoints" / "pilot_full"
+        Path(__file__).resolve().parent / "checkpoints" / "pilot_lora_lr001"
     )
 
     baseline_summaries = generate_summaries(MODEL_ID, reports, device)
@@ -110,7 +110,7 @@ def main():
     print("Pilot ROUGE:", calculate_rouge(
         pilot_summaries, references
     ))
-    
+
 
     for index, example in enumerate(examples.select(range(2))):
         print(f"\nExample {index + 1} | Source: {example['source']}")
