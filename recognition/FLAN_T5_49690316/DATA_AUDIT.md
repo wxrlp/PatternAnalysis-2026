@@ -229,3 +229,14 @@ A larger development run was submitted as job 659655:
 epochs, learning rate 0.001, and batch size 2.
 
 Its results are pending.
+
+
+
+## Split limitation
+
+Splits are separated by source-qualified image/session identifiers.
+Patient-level separation remains unverified because the released
+LaymanRRG table does not include an explicit patient identifier.
+
+Results therefore measure performance on identifier-separated
+examples, not verified unseen patients.
