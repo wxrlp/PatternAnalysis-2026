@@ -12,28 +12,103 @@ import numpy as np
 from rouge_score import rouge_scorer
 
 import argparse
+import hashlib
 import json
 
 
-def generate_summaries(model_path, reports, device, max_new_tokens):
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
-    model = RadiologySummarizer(str(model_path)).to(device) 
-    model.eval() # Define tokenizer, model, and set to evaluation mode
+def generate_summaries(
+    model_path, reports, device, max_new_tokens, progress_path
+):
+    generation_options = {
+        "max_new_tokens": max_new_tokens,
+        "min_new_tokens": 0,
+        "do_sample": False,
+        "num_beams": 1,
+        "repetition_penalty": 1.0,
+        "no_repeat_ngram_size": 0,
+    }
+
+    reports_hash = hashlib.sha256(
+        json.dumps(list(reports), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+    expected_settings = {
+        "progress_version": 2,
+        "model_path": str(model_path),
+        "instruction": INSTRUCTION,
+        "reports_hash": reports_hash,
+        "generation_options": generation_options,
+    }
 
     summaries = []
+    diagnostics = []
 
-    for index, report in enumerate(reports, start=1): # Processes one report at a time
+    if progress_path.exists():
+        with progress_path.open() as file:
+            saved = json.load(file)
+
+        if saved["settings"] != expected_settings:
+            raise ValueError("Saved generation settings do not match this run")
+
+        summaries = saved["summaries"]
+        diagnostics = saved["diagnostics"]
+        if not isinstance(diagnostics, list) or len(diagnostics) != len(summaries):
+            raise ValueError("Saved diagnostics do not match saved summaries")
+        if not isinstance(summaries, list) or not all(
+            isinstance(summary, str) for summary in summaries
+        ):
+            raise ValueError("Saved summaries must be a list of strings")
+        if len(summaries) > len(reports):
+            raise ValueError("Saved progress contains too many summaries")
+
+        print(
+            f"{model_path}: recovered {len(summaries)} summaries",
+            flush=True,
+        )
+
+    if len(summaries) == len(reports):
+        return summaries
+
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    model = RadiologySummarizer(str(model_path)).to(device)
+    model.eval() # Define tokenizer, model, and set to evaluation mode
+
+    def save_progress():
+        # Replace the previous snapshot only after the new file is fully written
+        temporary_path = progress_path.with_suffix(".tmp")
+        with temporary_path.open("w") as file:
+            json.dump(
+                {
+                    "settings": expected_settings,
+                    "summaries": summaries,
+                    "diagnostics": diagnostics,
+                },
+                file,
+            )
+        temporary_path.replace(progress_path)
+
+    # Process one report at a time, starting after the saved predictions
+    for index in range(len(summaries), len(reports)):
         inputs = tokenizer(
-            INSTRUCTION + report,
+            INSTRUCTION + reports[index],
             return_tensors="pt",
         ).to(device)
 
         with torch.inference_mode():
-            output_ids = model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
-            )
+            output_ids = model.generate(**inputs, **generation_options)
+
+        # T5 outputs begin with one decoder-start token; exclude it from the count
+        sequence = output_ids[0]
+        generated_tokens = sequence.numel() - 1
+        ended_with_eos = sequence[-1].item() == tokenizer.eos_token_id
+        diagnostics.append({
+            "input_tokens": inputs["input_ids"].shape[-1],
+            "generated_tokens": generated_tokens,
+            "ended_with_eos": ended_with_eos,
+            "reached_cap_without_eos": (
+                generated_tokens >= max_new_tokens and not ended_with_eos
+            ),
+        })
 
         summaries.append(
             tokenizer.decode(
@@ -42,9 +117,10 @@ def generate_summaries(model_path, reports, device, max_new_tokens):
             ) # Decodes each output and adds it to the result
         )
 
-        if index % 25 == 0 or index == len(reports):
+        if len(summaries) % 25 == 0 or len(summaries) == len(reports):
+            save_progress()
             print(
-                f"{model_path}: generated {index}/{len(reports)} summaries",
+                f"{model_path}: generated {len(summaries)}/{len(reports)} summaries",
                 flush=True,
             )
 
@@ -89,6 +165,21 @@ def calculate_rouge(predictions, references):
     }
 
 
+def summarize_generation(diagnostics):
+    """Describe lengths and stopping behaviour without treating EOS as accuracy."""
+    count = len(diagnostics)
+    capped = sum(row["reached_cap_without_eos"] for row in diagnostics)
+    return {
+        "count": count,
+        "mean_generated_tokens": sum(
+            row["generated_tokens"] for row in diagnostics
+        ) / count,
+        "max_generated_tokens": max(row["generated_tokens"] for row in diagnostics),
+        "ended_with_eos_count": sum(row["ended_with_eos"] for row in diagnostics),
+        "reached_cap_without_eos_count": capped,
+        "reached_cap_without_eos_fraction": capped / count,
+    }
+
 
 
 def main():
@@ -97,6 +188,12 @@ def main():
     parser.add_argument("--samples", type=int, default=1000)
     parser.add_argument("--max-new-tokens", type=int, default=1024)
     parser.add_argument("--output-name", required=True)
+    parser.add_argument(
+        "--split",
+        choices=["development", "final"],
+        default="development",
+    )
+    parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
 
     if args.samples <= 0 or args.max_new_tokens <= 0:
@@ -109,8 +206,15 @@ def main():
     if not checkpoint_dir.is_dir():
         raise FileNotFoundError(f"Missing checkpoint: {checkpoint_dir}")
 
-    if output_dir.exists():
-        raise FileExistsError(f"Choose a new output name: {output_dir}")
+    if args.resume:
+        if not output_dir.is_dir():
+            raise FileNotFoundError(
+                f"No evaluation directory to resume: {output_dir}"
+            )
+    elif output_dir.exists():
+        raise FileExistsError(
+            f"Choose a new output name or use --resume: {output_dir}"
+        )
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -121,29 +225,49 @@ def main():
 
     print("Evaluation device:", device, flush=True)
 
-    _, clean_train = load_audited_data()
-    _, development = split_train_development(clean_train) # Filter data and split into training/development
+    dataset, clean_train = load_audited_data()
 
-    if args.samples > len(development):
-        parser.error("Requested more examples than the development split contains")
+    if args.split == "development":
+        # Filter data and split into training/development
+        _, evaluation_data = split_train_development(clean_train)
+    else:
+        # The supplied validation split is reserved for final evaluation
+        evaluation_data = dataset["validation"]
 
-    # Select a reproducible development subset of the requested size
-    examples = development.shuffle(seed=42).select(range(args.samples))
+    if args.samples > len(evaluation_data):
+        parser.error("Requested more examples than the selected split contains")
+
+    # Select a reproducible subset of the requested size from the chosen split
+    examples = evaluation_data.shuffle(seed=42).select(range(args.samples))
     reports = examples["radiology_report"]
     references = examples["layman_report"]
 
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     baseline_summaries = generate_summaries(
-        MODEL_ID, reports, device, args.max_new_tokens
+        MODEL_ID, reports, device, args.max_new_tokens,
+        output_dir / "baseline_progress.json",
     )
     trained_summaries = generate_summaries(
-        checkpoint_dir, reports, device, args.max_new_tokens
+        checkpoint_dir, reports, device, args.max_new_tokens,
+        output_dir / "trained_progress.json",
     )
     # Generates from the original and trained checkpoints using the same reports
+
+    # Read per-example diagnostics from the same recoverable generation snapshots
+    with (output_dir / "baseline_progress.json").open() as file:
+        baseline_diagnostics = json.load(file)["diagnostics"]
+    with (output_dir / "trained_progress.json").open() as file:
+        trained_diagnostics = json.load(file)["diagnostics"]
 
     metrics = {
         "baseline": calculate_rouge(baseline_summaries, references),
         "trained": calculate_rouge(trained_summaries, references),
         "by_source": {},
+        "generation": {
+            "baseline": summarize_generation(baseline_diagnostics),
+            "trained": summarize_generation(trained_diagnostics),
+        },
     }
 
     # Report each source separately so aggregate scores do not hide differences
@@ -168,8 +292,6 @@ def main():
             ),
         }
 
-    output_dir.mkdir(parents=True)
-
     with (output_dir / "metrics.json").open("w") as file:
         json.dump(metrics, file, indent=2)
 
@@ -178,9 +300,14 @@ def main():
         "checkpoint_path": str(checkpoint_dir),
         "baseline_model": MODEL_ID,
         "instruction": INSTRUCTION,
-        "split": "development",
+        "split": args.split,
         "subset_seed": 42,
         "do_sample": False,
+        "num_beams": 1,
+        "min_new_tokens": 0,
+        "max_new_tokens": args.max_new_tokens,
+        "repetition_penalty": 1.0,
+        "no_repeat_ngram_size": 0,
         "device": str(device),
     }
 
@@ -198,6 +325,8 @@ def main():
                 "reference": example["layman_report"],
                 "baseline": baseline_summaries[index],
                 "trained": trained_summaries[index],
+                "baseline_diagnostics": baseline_diagnostics[index],
+                "trained_diagnostics": trained_diagnostics[index],
             }
             file.write(json.dumps(record) + "\n")
 
