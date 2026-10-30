@@ -2,10 +2,6 @@
 
 **Adin Sreekesh — s4969031 | COMP3710 | Hard difficulty**
 
-> Working report outline. Verified measurements have been inserted; writing
-> prompts and submission checks remain. Remove prompts only after completing
-> and reviewing the corresponding sections.
-
 ## Problem and intended use
 
 Radiology reports often contain medical terms and abbreviations that patients
@@ -196,12 +192,9 @@ receive identical descriptions, such as “No abnormalities.” These limitation
 mean the results should not be presented as performance on verified unseen
 patients.
 
-See [data audit](DATA_AUDIT.md) for repeated texts, missing values and split counts.
+See [data audit](docs/DATA_AUDIT.md) for repeated texts, missing values and split counts.
 The Rangpur logs identify dataset revision
 `6783ab38f9de28c4372799346f51d3927ae7eb9a`.
-<!-- REPRODUCIBILITY LIMIT: The current loader requests the default dataset
-revision rather than pinning it. Document model revision and dependency
-snapshots; do not imply that all historical runs were revision-pinned. -->
 
 ### Text Preprocessing
 
@@ -244,14 +237,21 @@ LoRA configuration: query/value projections (`q`, `v`), rank 8, alpha 16,
 dropout 0.05, and no additional trainable biases. Adapters remain unmerged
 for evaluation and profiling.
 
-<!-- WRITE: Explain teacher forcing, cross-entropy ignoring padded labels,
-gradient clipping at norm 1.0, and token-weighted epoch loss. Describe best-model
-selection by development loss and separate latest-state recovery checkpoints.
-State the 500-update recovery interval and fixed epoch shuffle seed. -->
+Training uses teacher forcing, meaning the decoder receives the preceding
+reference tokens while predicting the next token. Cross-entropy loss ignores
+target padding marked with `-100`. AdamW updates the trainable weights, with
+gradient norms limited to 1.0 to reduce unusually large updates. Epoch losses
+are weighted by the number of non-padding target tokens. The checkpoint with
+the lowest development loss is retained, while separate recovery checkpoints
+save training progress every 500 updates and after each epoch.
 
-<!-- WRITE: Summarise the 128-example pilots and 10,000-example development runs.
-Acknowledge different learning rates, unequal pilot tuning, one training seed,
-and the absence of an exhaustive hyperparameter comparison. -->
+Development began with functional checks and a two-example memorisation test,
+followed by 128-example pilots and experiments using 10,000 training examples.
+Increasing LoRA's learning rate from 0.0001 to 0.001 improved its development
+results. The selected settings were then used for full-data training. Since
+the methods used different learning rates and received unequal tuning effort,
+the comparison does not establish which method would perform best under
+exhaustive tuning.
 
 ## Investigation of the Open Research Dilemma
 
@@ -272,7 +272,7 @@ Final decoding uses the shared instruction and complete inputs, with
 `min_new_tokens=0`, `repetition_penalty=1.0`, and `no_repeat_ngram_size=0`.
 All models use identical evaluation examples and order. Final findings were
 used for reporting, not additional tuning. See the
-[evaluation plan](FINAL_EVALUATION_PLAN.md).
+[evaluation plan](docs/FINAL_EVALUATION_PLAN.md).
 
 Both adaptation methods substantially improved reference overlap from the base model, with full fine-tuning achieving the highest scores across all metrics. The same ordering appeared within each source dataset:
 
@@ -319,7 +319,7 @@ Inference was benchmarked on the same 32 development reports using float32, batc
 
 The timing covered generation only, while excluding loading, tokenisation, transfers, decoding, and scoring. LoRA adapters were not merged into the base model. Output lengths differed, and the baseline had one cap-hit output that increased its mean latency. It is essential to note that these are only small-workload measurements, not fixed-length speed comparisons or latency guarantees.
 
-See [inference measurement details](INFERENCE_PROFILE_SUMMARY.md) for the timing procedure. Warm-up calls are excluded from measured generation time.
+See [inference measurement details](docs/INFERENCE_PROFILE_SUMMARY.md) for the timing procedure. Warm-up calls are excluded from measured generation time.
 
 ### Qualitative failure analysis
 
@@ -361,7 +361,14 @@ Neither model should be recommended for independent patient-facing use. The audi
 
 Before progressing beyond a research prototype, the next experiment should ideally investigate input-quality screening, repetition and cap-hit detection, and check for anatomical substitutions, measurements, negation, and uncertainty. These safeguards have not yet been implemented or validated. Expert clinical review and real patient readability testing would also be necessary, as what constitutes “simple terms” can be highly subjective.
 
-Supporting analyses: [final cases](FINAL_CASE_REVIEW.md) and [development cases](DEVELOPMENT_CASE_REVIEW.md).
+Both adapted models improved all four ROUGE metrics over the baseline,
+completed training within the 12-hour and GPU-memory limits, and successfully
+reloaded saved checkpoints for prediction. However, the qualitative review
+identified unsupported findings, omissions and changes in meaning. The
+factual-faithfulness and readability criteria were therefore not fully met,
+so the prototype still requires further development and human review.
+
+Supporting analyses: [final cases](docs/FINAL_CASE_REVIEW.md) and [development cases](docs/DEVELOPMENT_CASE_REVIEW.md).
 
 ## Dependencies and reproducibility
 
@@ -403,8 +410,8 @@ not been measured.
 
 | Environment | Snapshot | Recorded Python/PyTorch |
 |---|---|---|
-| Local M4 Mac | [requirements-local.txt](requirements-local.txt) | Python 3.11.15; PyTorch 2.14.1 |
-| Rangpur A100 | [requirements-rangpur.txt](requirements-rangpur.txt) | Python 3.11.15; PyTorch 2.13.0+cu130 |
+| Local M4 Mac | [requirements-local.txt](requirements/requirements-local.txt) | Python 3.11.15; PyTorch 2.14.1 |
+| Rangpur A100 | [requirements-rangpur.txt](requirements/requirements-rangpur.txt) | Python 3.11.15; PyTorch 2.13.0+cu130 |
 
 The snapshots record the pip environments, including transitive
 dependencies. They are platform-specific: the Mac snapshot should not be used
@@ -415,9 +422,9 @@ itself as `2.13.0+cu130` in the retained job logs and inference profiles.
 The CUDA build suffix is not captured in that pip entry. Python and system
 GPU-driver versions are also outside the scope of `pip freeze`.
 
-<!-- ACTION: Record exact model revision and tested reporting dependency
-versions too. The plotting script uses Matplotlib, which was not part of
-these original training environment snapshots. -->
+Figure generation uses a separate [reporting environment](requirements/requirements-reporting.txt)
+(Python 3.14.0, Matplotlib 3.10.8, NumPy 2.4.4), not the training environments.
+The pretrained model revision was not pinned in the historical runs.
 
 ## Running the project
 
@@ -429,13 +436,60 @@ Run commands from this project directory.
 | dataset.py | Loading, identifier filtering/grouping, splits, tokenisation |
 | train.py | Training, development loss, selection, recovery and resource logs |
 | evaluate.py | Development/final generation, recovery, ROUGE and diagnostics |
-| predict.py | Currently the original tiny-overfit prediction demonstration |
-| profile_inference.py | Shared-development inference benchmark |
-| plot_results.py | Render figure from downloaded measurements |
+| predict.py | Load trained full/LoRA weights; explain supplied or held-out reports |
+| scripts/analysis/profile_inference.py | Shared-development inference benchmark |
+| scripts/reporting/plot_results.py | Render figure from downloaded measurements |
 
-**Prediction interface still needs updating:** `predict.py` currently loads
-`tiny_overfit`, uses training examples and lacks CUDA selection. It is not yet
-the final trained-checkpoint prediction interface. Do not describe it as such.
+### Project layout
+
+```text
+FLAN_T5_49690316/
+├── README.md
+├── config.py
+├── modules.py
+├── dataset.py
+├── train.py
+├── evaluate.py
+├── predict.py
+├── requirements/     # Platform-specific dependency snapshots
+├── docs/             # Supporting audits, plans and feasibility review
+├── scripts/          # Inspection, diagnostics, analysis, setup and plotting
+├── jobs/             # train/, evaluate/, profile/, setup/ and predict/ Slurm jobs
+├── figures/          # Report images
+├── report_data/      # Numeric training measurements, not dataset records
+├── checkpoints/      # Ignored: trained weights and recovery state
+├── results/          # Ignored: predictions, raw evaluation and profiles
+└── .venv/            # Ignored: local Python environment
+```
+
+Supporting scripts run as modules from this directory; see
+[scripts/README.md](scripts/README.md).
+
+### Prediction
+
+After training, or after downloading an authorised saved checkpoint into
+`checkpoints/`, run:
+
+```bash
+python predict.py --checkpoint full_all --split final --samples 3
+python predict.py --checkpoint lora_all --text "No significant findings."
+python predict.py --checkpoint full_all --input-file /path/to/report.txt
+```
+
+The text in the second command is a synthetic usage example, not a new
+experiment. `--checkpoint` also accepts an absolute path. `--device` supports
+`auto`, `cuda`, `mps`, or `cpu`; `auto` prefers CUDA, then MPS. With no supplied
+text/file, predictions use held-out examples rather than training examples.
+References are displayed for comparison but are never passed to generation.
+Use `--output results/prediction_demo.json` to save a new output file.
+Weights are deliberately absent from Git; a new checkout must first train them
+or receive the saved files through an authorised separate transfer.
+
+On Rangpur, submit `sbatch jobs/predict/predict_examples.sh` from this directory.
+The prediction interface was checked on Rangpur using both final checkpoints
+in job 714343. Each generated three held-out examples on CUDA, with all outputs
+ending normally.
+
 
 Representative full-data training command (inside an allocated GPU job):
 
@@ -470,8 +524,61 @@ Datasets, model weights, environments, and raw prediction files are excluded
 from Git. Weights must be produced using the documented training procedure;
 they are not supplied in this repository.
 
-<!-- ACTION: Document how to regenerate the plot with Matplotlib installed,
-how to obtain authorised data/model files, and clean-environment checks. -->
+### Environment and helper commands
+
+Create an isolated environment and install the snapshot matching the platform:
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements/requirements-local.txt
+```
+
+For CUDA use the tested cluster environment/snapshot rather than the Mac one.
+The cluster snapshot records pip packages but is not a complete driver/Conda
+installer. Verify CUDA inside a GPU allocation using
+`sbatch jobs/setup/gpu_check.sh` before training. NLTK sentence splitting can be
+checked in a CPU session with `nltk.sent_tokenize`; install the English
+`punkt_tab` resource using the official downloader where permitted, or copy the
+existing resource as documented in the setup notes.
+
+```bash
+python -m scripts.setup.prepare_cache
+python -m scripts.inspection.inspect_data
+python -m scripts.inspection.inspect_predictions
+python -m scripts.analysis.select_failure_candidates --split final
+```
+
+These commands need the matching cached dataset or downloaded prediction
+files as appropriate. Full training uses `jobs/train/`, final evaluation uses
+`jobs/evaluate/`, and inference profiling uses `jobs/profile/`.
+For example, submit `sbatch jobs/train/train_full_full_data.sh` from the project
+root. The reorganised jobs use one-process `torchrun`; reported historical
+measurements used the earlier Python launcher. They do not claim multi-GPU
+training.
+
+`train.py` also exposes a test-only driver that delegates to the same evaluator:
+
+```bash
+python train.py --test-checkpoint full_all --test-split final \
+  --test-samples 10000 --test-output-name full_all_test_driver
+```
+
+This is an optional reproduction command, not an additional reported experiment.
+It performs no training. Do not rerun completed evaluation merely to tune scores.
+
+To regenerate the report figure, install the separate reporting requirements
+in a suitable reporting environment and retain the downloaded result folders:
+
+```bash
+python -m pip install -r requirements/requirements-reporting.txt
+python -m scripts.reporting.plot_results
+```
+
+The plot reads the final metrics, inference profiles and
+[transcribed training measurements](report_data/training_measurements.json).
+The latter retain their provenance and should be checked against raw cluster logs.
+
 
 ## Artificial Intelligence Usage Disclosure
 
@@ -511,19 +618,10 @@ final report.
 - [Hugging Face PEFT documentation](https://huggingface.co/docs/peft/en/quicktour).
 - [LaymanRRG open-source dataset](https://huggingface.co/datasets/BioLaySumm/BioLaySumm2025-LaymanRRG-opensource-track).
 
-<!-- ADD: Formal dataset/shared-task and ROUGE citations after reading the
-relevant sources. Cite adapted library patterns in code docstrings as well. -->
+- Xiao et al. (2025). [Overview of the BioLaySumm 2025 Shared Task on Lay Summarization of Biomedical Research Articles and Radiology Reports](https://aclanthology.org/2025.bionlp-1.31/).
+- Lin (2004). [ROUGE: A Package for Automatic Evaluation of Summaries](https://aclanthology.org/W04-1013/).
+- [Google Research rouge-score implementation](https://github.com/google-research/google-research/tree/master/rouge).
 
-## Submission checklist (remove or complete before submission)
-
-- [ ] Write/review all author sections and remove unfinished prompts.
-- [x] Insert the complete feasibility review and record the completed tutor check-off.
-- [ ] Update and verify the real trained-model prediction interface.
-- [x] Include cluster dependency snapshot and document revision limitations.
-- [ ] Verify training transcription against downloaded raw cluster logs.
-- [ ] Review clinical interpretations and permissions for example excerpts.
-- [ ] Complete AI disclosure and citations honestly.
-- [ ] Check figure rendering, links, commands, and README PDF export.
-- [ ] Check Git excludes data/weights and has meaningful progressive commits.
-- [ ] Submit working PR to upstream topic-recognition and README PDF to Turnitin.
-- [ ] Respond to later teaching-team review within the published window.
+The project wraps pretrained Transformers and PEFT implementations rather than
+reimplementing a transformer or the ROUGE metric. API references are also
+identified in the relevant Python module docstrings.
