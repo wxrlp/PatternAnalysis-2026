@@ -122,7 +122,7 @@ def main():
         """Preserve trained weights so another script can load them later."""
 
         checkpoint_dir = (
-            Path(__file__).resolve().parent / "checkpoints" / "tiny_overfit"
+            Path(__file__).resolve().parents[2] / "checkpoints" / "tiny_overfit"
         ) # Builds a path relative to train.py's location. .resolve() makes the path absolute
           # Non-absolute path would look like src/data/config.json
           # Absolute path would look like /home/user/project/src/data/config.json

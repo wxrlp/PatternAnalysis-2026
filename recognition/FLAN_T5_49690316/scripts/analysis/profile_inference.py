@@ -29,7 +29,7 @@ def main():
     if not torch.cuda.is_available():
         raise RuntimeError("Run this benchmark inside a Slurm GPU allocation")
 
-    project_dir = Path(__file__).resolve().parent
+    project_dir = Path(__file__).resolve().parents[2]
     output_path = project_dir / "results" / "inference_profiles" / f"{args.output_name}.json"
     if output_path.exists():
         raise FileExistsError(f"Profile already exists: {output_path}")

@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=flan-full-all
+#SBATCH --job-name=flan-full-dev
 #SBATCH --account=comp3710
 #SBATCH --partition=comp3710
 #SBATCH --gres=gpu:1
-#SBATCH --time=12:00:00
-#SBATCH --output=train_full_all_%j.out
-#SBATCH --error=train_full_all_%j.err
+#SBATCH --time=03:00:00
+#SBATCH --output=train_full_development_%j.out
+#SBATCH --error=train_full_development_%j.err
 
 set -euo pipefail
 
@@ -20,12 +20,12 @@ export HF_DATASETS_OFFLINE=1
 echo "Job $SLURM_JOB_ID on $(hostname)"
 nvidia-smi
 
-python -u train.py \
+torchrun --standalone --nnodes=1 --nproc_per_node=1 train.py \
     --mode full \
     --learning-rate 0.0001 \
-    --train-size 142801 \
-    --dev-size 7515 \
+    --train-size 10000 \
+    --dev-size 1000 \
     --batch-size 2 \
     --epochs 3 \
     --save-every 500 \
-    --run-name full_all
+    --run-name full_dev_10k

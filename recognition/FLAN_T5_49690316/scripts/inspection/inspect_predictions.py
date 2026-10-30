@@ -3,7 +3,7 @@ import random
 from pathlib import Path
 
 
-project_dir = Path(__file__).resolve().parent
+project_dir = Path(__file__).resolve().parents[2]
 # Locate project directory
 
 def load_predictions(folder):

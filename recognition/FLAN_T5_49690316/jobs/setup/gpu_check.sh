@@ -18,7 +18,7 @@
 
 set -euo pipefail
 # Enables stricter error handling.
-# -u exits on most unhandled command failures, -u errors when an unset variable
+# -e exits on most unhandled command failures; -u errors on an unset variable
 # pipefail makes a pipeline report failure if one of its commands fail
 
 
@@ -28,4 +28,4 @@ conda activate torch
 cd "$HOME/comp3710/flan_t5"
 
 nvidia-smi
-python check_gpu.py
+python -m scripts.diagnostics.check_gpu

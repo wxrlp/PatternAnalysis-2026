@@ -7,7 +7,7 @@ from pathlib import Path
 from rouge_score import rouge_scorer
 
 
-PROJECT_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = Path(__file__).resolve().parents[2]
 
 
 def load_records(folder):

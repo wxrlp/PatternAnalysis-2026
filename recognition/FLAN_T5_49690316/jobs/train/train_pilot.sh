@@ -23,7 +23,7 @@ echo "Job $SLURM_JOB_ID on $(hostname)"
 # Logs the job iD and compute node name. $(hostname) inserts the output of the hostname command
 nvidia-smi
 
-python -u train.py \
+torchrun --standalone --nnodes=1 --nproc_per_node=1 train.py \
     --mode lora \
     --learning-rate 0.001 \
     --run-name pilot_lora_rangpur
