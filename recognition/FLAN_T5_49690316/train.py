@@ -1,6 +1,8 @@
 from pathlib import Path
 
 import argparse
+import subprocess
+import sys
 import torch
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, DataCollatorForSeq2Seq
@@ -134,8 +136,26 @@ def main():
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--save-every", type=int, default=500) 
     # Controls how many training batches occur between recovery saves
+    parser.add_argument("--test-checkpoint", help="Evaluate saved weights instead of training")
+    parser.add_argument("--test-split", choices=["development", "final"], default="final")
+    parser.add_argument("--test-samples", type=int, default=10000)
+    parser.add_argument("--test-output-name", help="New results folder for --test-checkpoint")
 
     args = parser.parse_args() # Reads command line options, selected value is available as args.mode
+
+    # Reuse the benchmark implementation for a test-only training-driver mode.
+    # This avoids duplicating ROUGE or silently evaluating after every training run.
+    if args.test_checkpoint:
+        if not args.test_output_name or args.test_samples <= 0:
+            parser.error("Testing requires --test-output-name and a positive --test-samples")
+        subprocess.run([
+            sys.executable, str(Path(__file__).resolve().parent / "evaluate.py"),
+            "--checkpoint", args.test_checkpoint,
+            "--split", args.test_split,
+            "--samples", str(args.test_samples),
+            "--output-name", args.test_output_name,
+        ], check=True)
+        return
 
     if min(args.epochs, args.train_size, args.dev_size, args.batch_size, args.save_every) <= 0:
         parser.error("Epochs, sample counts, and batch size must be positive")
