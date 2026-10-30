@@ -1,3 +1,10 @@
+"""LaymanRRG loading and project-specific identifier grouping/preprocessing.
+
+Data source: https://huggingface.co/datasets/BioLaySumm/BioLaySumm2025-LaymanRRG-opensource-track
+Uses Hugging Face Datasets load/filter/select APIs. Source identifiers do not
+establish patient-level separation; see README for the audit limitations.
+"""
+
 import ast
 
 from datasets import load_dataset

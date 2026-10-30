@@ -1,3 +1,10 @@
+"""FLAN-T5 wrapper using Transformers and PEFT APIs (not a transformer reimplementation).
+
+References: https://huggingface.co/google/flan-t5-small and
+https://huggingface.co/docs/peft/en/quicktour (LoraConfig/get_peft_model and
+PeftModel.from_pretrained patterns). T5, FLAN and LoRA papers are in README.
+"""
+
 import torch
 from transformers import AutoModelForSeq2SeqLM
 from peft import (

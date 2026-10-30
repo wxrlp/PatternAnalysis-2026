@@ -1,3 +1,11 @@
+"""Shared evaluation for untuned, full and LoRA FLAN-T5 models.
+
+ROUGE is calculated by the rouge-score library, not reimplemented here:
+https://github.com/google-research/google-research/tree/master/rouge
+Metric reference: Lin (2004), https://aclanthology.org/W04-1013/.
+Generation uses Transformers/PEFT APIs referenced in modules.py and README.
+"""
+
 from pathlib import Path
 
 import torch
