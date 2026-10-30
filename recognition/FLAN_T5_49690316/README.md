@@ -428,7 +428,10 @@ The pretrained model revision was not pinned in the historical runs.
 
 ## Running the project
 
-Run commands from this project directory.
+The following commands should be run from the `FLAN_T5_49690316` project
+directory. The table below describes the purpose of the main files, while the
+directory layout shows where the supporting scripts, job files and
+documentation are stored.
 
 | File | Responsibility |
 |---|---|
@@ -462,13 +465,15 @@ FLAN_T5_49690316/
 └── .venv/            # Ignored: local Python environment
 ```
 
-Supporting scripts run as modules from this directory; see
-[scripts/README.md](scripts/README.md).
+The supporting scripts can be run as Python modules from the project directory.
+Further examples are provided in [scripts/README.md](scripts/README.md).
 
 ### Prediction
 
-After training, or after downloading an authorised saved checkpoint into
-`checkpoints/`, run:
+Once a model has been trained, its saved checkpoint can be loaded using
+`predict.py`. The script can generate explanations for examples from the
+reserved evaluation set, a report entered directly into the command, or a
+report stored in a text file.
 
 ```bash
 python predict.py --checkpoint full_all --split final --samples 3
@@ -476,57 +481,71 @@ python predict.py --checkpoint lora_all --text "No significant findings."
 python predict.py --checkpoint full_all --input-file /path/to/report.txt
 ```
 
-The text in the second command is a synthetic usage example, not a new
-experiment. `--checkpoint` also accepts an absolute path. `--device` supports
-`auto`, `cuda`, `mps`, or `cpu`; `auto` prefers CUDA, then MPS. With no supplied
-text/file, predictions use held-out examples rather than training examples.
-References are displayed for comparison but are never passed to generation.
-Use `--output results/prediction_demo.json` to save a new output file.
-Weights are deliberately absent from Git; a new checkout must first train them
-or receive the saved files through an authorised separate transfer.
+The second command uses a short synthetic report to demonstrate the interface.
+The `--checkpoint` option accepts either a folder name within `checkpoints/`
+or an absolute path to a saved checkpoint. The `--device` option allows the
+user to select CUDA, MPS or CPU. When set to `auto`, the script selects CUDA
+if available, followed by MPS and then CPU.
 
-On Rangpur, submit `sbatch jobs/predict/predict_examples.sh` from this directory.
-The prediction interface was checked on Rangpur using both final checkpoints
-in job 714343. Each generated three held-out examples on CUDA, with all outputs
-ending normally.
+If no report or input file is supplied, the script selects examples from the
+specified held-out split. Their reference explanations are displayed for
+comparison, but only the technical reports and the instruction are passed to
+the model. The generated explanations can also be saved by adding
+`--output results/prediction_demo.json`.
 
+The trained weights are excluded from the repository. To run prediction from
+a new checkout, the user will first need to train a model or obtain a copy of
+the saved checkpoint through a separate transfer.
 
-Representative full-data training command (inside an allocated GPU job):
+On Rangpur, the prediction job can be submitted with
+`sbatch jobs/predict/predict_examples.sh`. This interface was checked using
+both final checkpoints in job 714343. Each model generated explanations for
+three held-out examples on CUDA, and all six outputs ended with an
+end-of-sequence token.
+
+The following command shows the settings used for full-data LoRA training.
+On Rangpur, it should be run through a GPU job rather than directly on the
+login node.
 
 ```bash
 python train.py --mode lora --learning-rate 0.001 --train-size 142801 \
   --dev-size 7515 --batch-size 2 --epochs 3 --save-every 500 --run-name lora_all
 ```
 
-For full fine-tuning use `--mode full --learning-rate 0.0001 --run-name full_all`.
-To continue an interrupted run, repeat its settings and add `--resume`.
-Use a new run name for a fresh experiment; do not overwrite trained checkpoints.
+For full fine-tuning, change the options to
+`--mode full --learning-rate 0.0001 --run-name full_all`. An interrupted run
+can be continued by repeating its original settings and adding `--resume`.
+A fresh experiment should use a new run name so that the existing checkpoints
+are preserved.
 
-Representative final evaluation command (already executed; not a tuning step):
+The following command reproduces the final LoRA evaluation on the 10,000
+reserved examples. This evaluation was completed after the training settings
+had been selected.
 
 ```bash
 python evaluate.py --checkpoint lora_all --split final --samples 10000 \
   --max-new-tokens 1024 --output-name lora_all_final_eval
 ```
 
-For full evaluation change checkpoint/output names to `full_all` and
-`full_all_final_eval`. Add `--resume` only to continue compatible saved progress.
-Do not modify checkpoints between evaluation sessions. Existing results folders
-are protected against accidental fresh-run overwrites.
+To evaluate the fully fine-tuned model, change the checkpoint to `full_all`
+and the output name to `full_all_final_eval`. The `--resume` option continues
+an interrupted evaluation using its saved progress, provided that the
+checkpoint and generation settings remain unchanged. The evaluator also
+checks for an existing results folder to prevent an accidental overwrite.
 
-Slurm scripts include account `comp3710`, partition `comp3710`, and one GPU.
-The course QoS limit observed was 12 hours. Installs/data setup use CPU sessions;
-training/inference use GPU batch jobs. NLTK requires English `punkt_tab` resources;
-the remote copy was transferred from the local installation after its downloader
-refused a proxied request. No security bypass was used.
+The Slurm scripts request the `comp3710` account and partition with one GPU.
+The observed course QoS limit was 12 hours per job. Package installation and
+data preparation were carried out in CPU sessions, while training and
+inference used GPU batch jobs.
 
-Datasets, model weights, environments, and raw prediction files are excluded
-from Git. Weights must be produced using the documented training procedure;
-they are not supplied in this repository.
+NLTK requires the English `punkt_tab` resources for sentence splitting. When
+the downloader refused a proxied request on Rangpur, the existing resource
+was copied from the local installation.
 
 ### Environment and helper commands
 
-Create an isolated environment and install the snapshot matching the platform:
+The local environment can be created using the following commands and the
+Mac dependency snapshot.
 
 ```bash
 python3.11 -m venv .venv
@@ -534,13 +553,16 @@ source .venv/bin/activate
 python -m pip install -r requirements/requirements-local.txt
 ```
 
-For CUDA use the tested cluster environment/snapshot rather than the Mac one.
-The cluster snapshot records pip packages but is not a complete driver/Conda
-installer. Verify CUDA inside a GPU allocation using
-`sbatch jobs/setup/gpu_check.sh` before training. NLTK sentence splitting can be
-checked in a CPU session with `nltk.sent_tokenize`; install the English
-`punkt_tab` resource using the official downloader where permitted, or copy the
-existing resource as documented in the setup notes.
+The Mac and Rangpur environments use different PyTorch builds, so the cluster
+environment should use the Rangpur snapshot. This snapshot records the Python
+packages installed during the experiments, although the CUDA driver and
+Conda setup must be configured separately. GPU availability can be checked
+within an allocation by submitting `sbatch jobs/setup/gpu_check.sh`.
+
+NLTK sentence splitting can be checked in a CPU session using
+`nltk.sent_tokenize`. The English `punkt_tab` resource can be installed through
+the official downloader where permitted, or transferred from an existing
+installation as described above.
 
 ```bash
 python -m scripts.setup.prepare_cache
@@ -549,36 +571,41 @@ python -m scripts.inspection.inspect_predictions
 python -m scripts.analysis.select_failure_candidates --split final
 ```
 
-These commands need the matching cached dataset or downloaded prediction
-files as appropriate. Full training uses `jobs/train/`, final evaluation uses
-`jobs/evaluate/`, and inference profiling uses `jobs/profile/`.
-For example, submit `sbatch jobs/train/train_full_full_data.sh` from the project
-root. The reorganised jobs use one-process `torchrun`; reported historical
-measurements used the earlier Python launcher. They do not claim multi-GPU
-training.
+These helper scripts use the cached dataset or downloaded prediction files,
+depending on their purpose. The Slurm jobs are organised into folders for
+training, evaluation and inference profiling. For example, the full
+fine-tuning job can be submitted from the project directory with
+`sbatch jobs/train/train_full_full_data.sh`.
 
-`train.py` also exposes a test-only driver that delegates to the same evaluator:
+The reorganised training jobs use a single-process `torchrun` launcher.
+The reported experiments used the earlier Python launcher and were performed
+on one GPU.
+
+The training script also provides a test-only option that calls the shared
+evaluator. This offers another way to evaluate a saved checkpoint without
+running training.
 
 ```bash
 python train.py --test-checkpoint full_all --test-split final \
   --test-samples 10000 --test-output-name full_all_test_driver
 ```
 
-This is an optional reproduction command, not an additional reported experiment.
-It performs no training. Do not rerun completed evaluation merely to tune scores.
+This command is provided for reproducing the evaluation procedure. It was not
+used to produce an additional set of reported results, and the completed final
+evaluation was not used to adjust the training settings.
 
-To regenerate the report figure, install the separate reporting requirements
-in a suitable reporting environment and retain the downloaded result folders:
+The results figure can be regenerated using the separate reporting environment
+and the downloaded evaluation and profiling files.
 
 ```bash
 python -m pip install -r requirements/requirements-reporting.txt
 python -m scripts.reporting.plot_results
 ```
 
-The plot reads the final metrics, inference profiles and
+The plotting script reads the final evaluation metrics, inference profiles and
 [transcribed training measurements](report_data/training_measurements.json).
-The latter retain their provenance and should be checked against raw cluster logs.
-
+The training measurements include their recorded provenance and should be
+checked against the original cluster logs when reproducing the report.
 
 ## Artificial Intelligence Usage Disclosure
 
